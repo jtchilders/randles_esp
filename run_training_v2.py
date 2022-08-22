@@ -4,9 +4,12 @@ import numpy as np
 import tensorflow as tf
 import datetime
 import horovod.tensorflow as hvd
+import socket
 
 profile = False
 hvd.init()
+print('NUM MPI RANKS: %4d  HOST: %20s  LOCAL_RANK:  %4d    GLOBAL_RANK:  %4d' % (hvd.size(),socket.gethostname(),hvd.local_rank(),hvd.rank()))
+sys.stdout.flush()
 
 if hvd.rank() == 0:
    print('tensorflow version: ',tf.__version__)
@@ -19,7 +22,7 @@ if gpus:
    tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
 
 
-def simple_dataset_from_filelist(shell_filelist,batch_size,shard_size=1,shard_rank=0,prefectch_buffer_size=1,shuffle_buffer=10000,num_parallel_calls=3):
+def simple_dataset_from_filelist(shell_filelist,batch_size,shard_size=1,shard_rank=0,prefectch_buffer_size=1,shuffle_buffer=10000,num_parallel_calls=2):
 
    # glob for the input files
    filelist = tf.data.Dataset.from_tensor_slices(np.array(shell_filelist))
@@ -61,7 +64,11 @@ def random_subsample(data,n_sub_imgs):
 def wrapped_loader(path):
    path = path.numpy().decode('utf-8')
 
-   data = pd.read_csv(path)
+   try:
+      data = pd.read_csv(path)
+   except:
+      print('failed to parse: ',path)
+      raise
 
    mout = data[data['8'] > 0][['1','2','3']]
    pv_data = data[data['8'] == 0][['1','2','3','5','6','7']]
@@ -123,7 +130,7 @@ class PointNet(tf.keras.Model):
       return out
 
 
-@tf.function()
+@tf.function
 def train_step(mx,pv,y,model,optimizer,criterion,first_batch):
 
    with tf.GradientTape() as tape:
@@ -154,11 +161,11 @@ def test_step(mx,pv,y,model,criterion):
    loss = tf.reduce_mean(criterion(y, logits))
    return loss,logits
 
-data_path = '/projects/multiphysics_aesp/aymanzyy/FullCSVs'
-filelist = glob.glob(data_path + '/*combined_csv*.csv')
+data_path = '/lus/eagle/projects/multiphysics_aesp/data/FullCSVs/'
+filelist = glob.glob(data_path + '/00cts*combined_csv*.csv')
 if hvd.rank() == 0:
    print(' found ',len(filelist), ' files')
-
+if len(filelist) == 0: sys.exit(-1)
 
 nfiles = len(filelist)
 np.random.shuffle(filelist)
@@ -209,7 +216,8 @@ for i_epoch in range(10):
          if(first_batch):
             model.summary()
 
-         print("[%05d] time = %s loss = %f   %f   %f" % (i_epoch*total_steps + step,str(dur),loss,train_loss.result(),train_acc.result()))
+         print("[%05d] time = %s loss = %f  loss_mean: %f  acc_mean: %f  points: %d %d" % (i_epoch*total_steps + step,str(dur),loss,train_loss.result(),train_acc.result(),pv.get_shape().as_list()[0],mx.get_shape().as_list()[0]))
+         sys.stdout.flush()
          with train_summary_writer.as_default():
             tf.summary.scalar('loss', train_loss.result(), step=i_epoch*total_steps + step)
             tf.summary.scalar('accuracy', train_acc.result(), step=i_epoch*total_steps + step)
@@ -231,7 +239,7 @@ for i_epoch in range(10):
       end = datetime.datetime.now()
       dur = end - start
       if(hvd.rank() == 0):
-         print("[%05d] time = %s loss = %f" % (step,str(dur),loss))
+         print("[%05d] time = %s loss = %f  points: %d %d" % (step,str(dur),loss,pv.get_shape().as_list()[0],mx.get_shape().as_list()[0]))
    with test_summary_writer.as_default():
       tf.summary.scalar('loss', test_loss.result(), step=i_epoch*total_steps)
       tf.summary.scalar('accuracy', test_acc.result(), step=i_epoch*total_steps)
