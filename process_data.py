@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 
 
-output_path = '/lus/eagle/projects/datascience/parton/randles_data_sampled'
+output_path = '/lus/eagle/projects/multiphysics_aesp/data/FullCSVs_sampled'
 input_path = '/lus/eagle/projects/multiphysics_aesp/data/FullCSVs'
-filelist = glob.glob(input_path + '/00cts?l*combined_csv*.csv')
+filelist = glob.glob(input_path + '/*combined_csv*.csv')
 nfiles = len(filelist)
 print(' found ',nfiles, ' files')
 

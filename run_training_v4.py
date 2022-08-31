@@ -84,7 +84,7 @@ def wrapped_loader(path):
 
    try:
       pv_data = np.load(path)
-      pv_data = pv_data['arr_0']
+      pv_data = pv_data['data']
    except:
       print('failed to parse pv_out: ',path)
       raise
@@ -94,7 +94,7 @@ def wrapped_loader(path):
    path = get_mout_fn(path)
    try:
       mout = np.load(path)
-      mout = mout['arr_0']
+      mout = mout['data']
    except:
       print('failed to parse mout: ',path)
       raise
@@ -180,7 +180,7 @@ def main():
 
    profile = False
    stop_early = False
-   stop_step = 3
+   stop_step = 10
    if profile:
       stop_early = True
    hvd.init()
@@ -198,7 +198,7 @@ def main():
       tf.config.experimental.set_visible_devices(gpus[hvd.local_rank()], 'GPU')
    print('RANK:',hvd.rank(),'GPUS: ',tf.config.experimental.get_visible_devices('GPU'))
 
-   data_path = '/lus/eagle/projects/datascience/parton/randles_data_sampled/'
+   data_path = '/lus/eagle/projects/multiphysics_aesp/data/FullCSVs_sampled/'
    filelist = glob.glob(data_path + '*_pv_data_*.csv.gz.npz')
    if hvd.rank() == 0:
       print(' found ',len(filelist), ' files')
