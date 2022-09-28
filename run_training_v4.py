@@ -157,7 +157,7 @@ def train_step(mx,pv,y,model,optimizer,criterion,first_batch):
    
    grads = tape.gradient(loss, model.trainable_variables)
    optimizer.apply_gradients(zip(grads, model.trainable_variables))
-
+   
    # Horovod: broadcast initial variable states from rank 0 to all other processes.
    # This is necessary to ensure consistent initialization of all workers when
    # training is started with random weights or restored from a checkpoint.
@@ -215,8 +215,10 @@ def main():
 
    train_loss = tf.keras.metrics.Mean('train_loss')
    train_acc  = tf.keras.metrics.MeanSquaredError('train_accuracy')
+   train_nmae = tf.keras.metrics.Mean('train_nmae')
    test_loss  = tf.keras.metrics.Mean('test_loss')
    test_acc   = tf.keras.metrics.MeanSquaredError('test_accuracy')
+   test_nmae = tf.keras.metrics.Mean('test_nmae')
 
    if hvd.rank() == 0:
       current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -247,8 +249,17 @@ def main():
          pv = tf.squeeze(pv)
 
          loss,logits = train_step(mx,pv[:,0:3],pv[:,3:6],model,optimizer,criterion,first_batch)
+
+
+         npoints = pv.get_shape().as_list()[0]
+         a = tf.reduce_sum(tf.abs(pv[:,3:6] - logits),axis=0)
+         b = tf.reduce_max(pv[:,3:6],axis=0) - tf.reduce_min(pv[:,3:6],axis=0)
+         c = a / b
+         nmae = tf.reduce_mean(c/ npoints )
+
          train_loss(loss)
          train_acc(logits,pv[:,3:6])
+         train_nmae(nmae)
          end = datetime.datetime.now()
          dur = end - start
 
@@ -260,6 +271,7 @@ def main():
             with train_summary_writer.as_default():
                tf.summary.scalar('loss', train_loss.result(), step=i_epoch*total_steps + step)
                tf.summary.scalar('accuracy', train_acc.result(), step=i_epoch*total_steps + step)
+               tf.summary.scalar('NMAE', train_nmae.result(), step=i_epoch*total_steps + step)
          
          first_batch = False
          if stop_early and step >= stop_step:
@@ -281,8 +293,15 @@ def main():
             pv = tf.squeeze(pv)
 
             loss,logits = test_step(mx,pv[:,0:3],pv[:,3:6],model,criterion)
+
+            npoints = pv.get_shape().as_list()[0]
+            a = tf.reduce_sum(tf.abs(pv[:,3:6] - logits),axis=0)
+            b = tf.reduce_max(pv[:,3:6],axis=0) - tf.reduce_min(pv[:,3:6],axis=0)
+            c = a / b
+            nmae = tf.reduce_mean(c/ npoints )
             test_loss(loss)
             test_acc(logits,pv[:,3:6])
+            test_nmae(nmae)
             end = datetime.datetime.now()
             dur = end - start
             if(step % 100 == 0):
@@ -292,13 +311,16 @@ def main():
                with test_summary_writer.as_default():
                   tf.summary.scalar('loss', test_loss.result(), step=log_step)
                   tf.summary.scalar('accuracy', test_acc.result(), step=log_step)
+                  tf.summary.scalar('NMAE', test_nmae.result(), step=log_step)
          
-         template = 'Epoch {}, Loss: {}, Accuracy: {}, Test Loss: {}, Test Accuracy: {}'
+         template = 'Epoch {}, Loss: {}, Accuracy: {}, NMAE: {}, Test Loss: {}, Test Accuracy: {}, Test NMAE: {}'
          print (template.format(i_epoch+1,
                               train_loss.result(), 
                               train_acc.result(),
+                              train_nmae.result(),
                               test_loss.result(), 
-                              test_acc.result()))
+                              test_acc.result(), 
+                              test_nmae.result()))
       
       print("[%02d] rank %02d done testing" % (i_epoch,hvd.rank()))
       sys.stdout.flush()
